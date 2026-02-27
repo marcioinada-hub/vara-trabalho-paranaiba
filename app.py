@@ -377,7 +377,8 @@ def admin_logout():
 @app.route('/')
 def index():
     """Página principal"""
-    with open('/home/ubuntu/vara-trabalho-paranaiba/index.html', 'r', encoding='utf-8') as f:
+    index_path = os.path.join(DB_DIR, 'index.html')
+    with open(index_path, 'r', encoding='utf-8') as f:
         return f.read()
 
 # HTML do formulário de login
