@@ -1,5 +1,5 @@
 from flask import Flask, jsonify, request, render_template_string, session, redirect, url_for
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import sqlite3
 import logging
 import schedule
@@ -9,11 +9,20 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import hashlib
+import pytz
+
+# Configurar fuso horário GMT-4 (Brasília)
+TZ_BRASILIA = pytz.timezone('America/Sao_Paulo')
 
 app = Flask(__name__)
 app.secret_key = 'sua_chave_secreta_aqui_2026'
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Função para obter data/hora atual em GMT-4
+def agora_brasilia():
+    """Retorna a data/hora atual no fuso horário de Brasília (GMT-4)"""
+    return datetime.now(TZ_BRASILIA)
 
 # Configuração do banco de dados
 DB_PATH = '/home/ubuntu/vara-trabalho-paranaiba/inscricoes.db'
@@ -197,7 +206,7 @@ def gerar_relatorio():
         
         relatorio = "RELATÓRIO DE INSCRIÇÕES - VARA DO TRABALHO DE PARANAÍBA\n"
         relatorio += "=" * 80 + "\n"
-        relatorio += f"Gerado em: {datetime.now().strftime('%d/%m/%Y às %H:%M:%S')}\n"
+        relatorio += f"Gerado em: {agora_brasilia().strftime('%d/%m/%Y às %H:%M:%S')}\n"
         relatorio += "=" * 80 + "\n\n"
         
         # Gerar relatório para cada dia e período
@@ -244,7 +253,7 @@ def salvar_relatorio():
         logger.error(f"Erro ao salvar relatório: {e}")
 
 def agendar_tarefas():
-    """Agenda as tarefas de geração de relatórios"""
+    """Agenda as tarefas de geração de relatórios (GMT-4 / Brasília)"""
     # Segunda-feira às 13h45
     schedule.every().monday.at("13:45").do(salvar_relatorio)
     
@@ -264,6 +273,8 @@ def agendar_tarefas():
             schedule.run_pending()
             import time
             time.sleep(60)
+    
+    logger.info("Tarefas agendadas com sucesso (fuso horário: GMT-4 / Brasília)")
     
     thread = threading.Thread(target=executar_agendador, daemon=True)
     thread.start()
