@@ -48,7 +48,7 @@ DADOS_REAIS = [
     {'data': '04/03/2026', 'horario': '15:10', 'tipo': 'Instrução', 'processo': 'ATOrd 0024945-97.2025.5.24.0061'},
     {'data': '04/03/2026', 'horario': '16:00', 'tipo': 'Instrução', 'processo': 'ATOrd 0024951-07.2025.5.24.0061'},
     
-    # Dia 05/03/2026 (Quarta-feira)
+    # Dia 05/03/2026 (Quinta-feira)
     {'data': '05/03/2026', 'horario': '09:00', 'tipo': 'Conciliação em Conhecimento', 'processo': 'HTE 0024230-21.2026.5.24.0061'},
     {'data': '05/03/2026', 'horario': '09:15', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0025612-83.2025.5.24.0061'},
     {'data': '05/03/2026', 'horario': '09:30', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0024063-04.2026.5.24.0061'},
@@ -120,34 +120,99 @@ def buscar_pauta():
     
     return pautas_encontradas
 
-def gerar_relatorio():
-    """Gera relatório agrupado por audiência"""
+def determinar_periodo(horario):
+    """Determina se o horário é matutino (antes de 12h) ou vespertino (12h ou depois)"""
+    hora = int(horario.split(':')[0])
+    return "MATUTINO" if hora < 12 else "VESPERTINO"
+
+def gerar_relatorio_por_periodo(data, periodo):
+    """Gera relatório para um dia e período específico"""
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
+        # Buscar todas as inscrições para este dia
         cursor.execute('''
-            SELECT data_audiencia, horario_audiencia, processo_audiencia, GROUP_CONCAT(nome, ', ')
+            SELECT horario_audiencia, processo_audiencia, nome
             FROM inscricoes
-            GROUP BY data_audiencia, horario_audiencia, processo_audiencia
-            ORDER BY data_audiencia, horario_audiencia
-        ''')
+            WHERE data_audiencia = ?
+            ORDER BY horario_audiencia, nome
+        ''', (data,))
         
         resultados = cursor.fetchall()
         conn.close()
         
         if not resultados:
+            return None
+        
+        # Agrupar por período
+        audiencias_periodo = {}
+        for horario, processo, nome in resultados:
+            periodo_horario = determinar_periodo(horario)
+            if periodo_horario == periodo:
+                chave = (horario, processo)
+                if chave not in audiencias_periodo:
+                    audiencias_periodo[chave] = []
+                audiencias_periodo[chave].append(nome)
+        
+        if not audiencias_periodo:
+            return None
+        
+        # Formatar relatório
+        relatorio = f"DATA: {data}\n"
+        relatorio += f"PERÍODO: {periodo}\n"
+        relatorio += "=" * 80 + "\n\n"
+        
+        for (horario, processo), nomes in sorted(audiencias_periodo.items()):
+            relatorio += f"Horário: {horario}\n"
+            relatorio += f"Processo: {processo}\n"
+            relatorio += f"Inscritos:\n"
+            for nome in sorted(set(nomes)):  # Remover duplicatas e ordenar
+                relatorio += f"  • {nome}\n"
+            relatorio += "\n"
+        
+        return relatorio
+    except Exception as e:
+        logger.error(f"Erro ao gerar relatório por período: {e}")
+        return None
+
+def gerar_relatorio():
+    """Gera relatório agrupado por dia e período"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Buscar todos os dias com inscrições
+        cursor.execute('''
+            SELECT DISTINCT data_audiencia
+            FROM inscricoes
+            ORDER BY data_audiencia
+        ''')
+        
+        datas = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        
+        if not datas:
             return ""
         
         relatorio = "RELATÓRIO DE INSCRIÇÕES - VARA DO TRABALHO DE PARANAÍBA\n"
+        relatorio += "=" * 80 + "\n"
+        relatorio += f"Gerado em: {datetime.now().strftime('%d/%m/%Y às %H:%M:%S')}\n"
         relatorio += "=" * 80 + "\n\n"
         
-        for data, horario, processo, nomes in resultados:
-            relatorio += f"Data: {data}\n"
-            relatorio += f"Horário: {horario}\n"
-            relatorio += f"Processo: {processo}\n"
-            relatorio += f"Inscritos: {nomes}\n"
-            relatorio += "-" * 80 + "\n\n"
+        # Gerar relatório para cada dia e período
+        for data in datas:
+            # Período matutino
+            rel_matutino = gerar_relatorio_por_periodo(data, "MATUTINO")
+            if rel_matutino:
+                relatorio += rel_matutino
+                relatorio += "\n" + "-" * 80 + "\n\n"
+            
+            # Período vespertino
+            rel_vespertino = gerar_relatorio_por_periodo(data, "VESPERTINO")
+            if rel_vespertino:
+                relatorio += rel_vespertino
+                relatorio += "\n" + "-" * 80 + "\n\n"
         
         return relatorio
     except Exception as e:
@@ -180,8 +245,19 @@ def salvar_relatorio():
 
 def agendar_tarefas():
     """Agenda as tarefas de geração de relatórios"""
-    schedule.every().day.at("08:20").do(salvar_relatorio)
-    schedule.every().day.at("13:15").do(salvar_relatorio)
+    # Segunda-feira às 13h45
+    schedule.every().monday.at("13:45").do(salvar_relatorio)
+    
+    # Terça-feira às 8h10 e 13h15
+    schedule.every().tuesday.at("08:10").do(salvar_relatorio)
+    schedule.every().tuesday.at("13:15").do(salvar_relatorio)
+    
+    # Quarta-feira às 8h10 e 13h15
+    schedule.every().wednesday.at("08:10").do(salvar_relatorio)
+    schedule.every().wednesday.at("13:15").do(salvar_relatorio)
+    
+    # Quinta-feira às 8h10
+    schedule.every().thursday.at("08:10").do(salvar_relatorio)
     
     def executar_agendador():
         while True:
@@ -468,7 +544,7 @@ RELATORIOS_HTML = '''
             line-height: 1.6;
             white-space: pre-wrap;
             word-wrap: break-word;
-            max-height: 400px;
+            max-height: 600px;
             overflow-y: auto;
         }
         .vazio {
@@ -499,7 +575,7 @@ RELATORIOS_HTML = '''
         {% else %}
             <div class="vazio">
                 <p>Nenhum relatório disponível ainda.</p>
-                <p style="font-size: 12px; margin-top: 10px;">Os relatórios serão gerados automaticamente às 8h20 e 13h15.</p>
+                <p style="font-size: 12px; margin-top: 10px;">Os relatórios serão gerados automaticamente nos horários agendados.</p>
             </div>
         {% endif %}
     </div>
