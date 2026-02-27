@@ -11,8 +11,8 @@ from email.mime.multipart import MIMEMultipart
 import hashlib
 import pytz
 
-# Configurar fuso horário GMT-4 (Brasília)
-TZ_BRASILIA = pytz.timezone('America/Sao_Paulo')
+# Configurar fuso horário GMT-4 (Campo Grande/MS)
+TZ_CAMPO_GRANDE = pytz.timezone('America/Campo_Grande')
 
 app = Flask(__name__)
 app.secret_key = 'sua_chave_secreta_aqui_2026'
@@ -20,9 +20,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Função para obter data/hora atual em GMT-4
-def agora_brasilia():
-    """Retorna a data/hora atual no fuso horário de Brasília (GMT-4)"""
-    return datetime.now(TZ_BRASILIA)
+def agora_gmt4():
+    """Retorna a data/hora atual no fuso horário GMT-4 (Campo Grande/MS)"""
+    return datetime.now(TZ_CAMPO_GRANDE)
 
 # Configuração do banco de dados
 DB_PATH = '/home/ubuntu/vara-trabalho-paranaiba/inscricoes.db'
@@ -206,7 +206,7 @@ def gerar_relatorio():
         
         relatorio = "RELATÓRIO DE INSCRIÇÕES - VARA DO TRABALHO DE PARANAÍBA\n"
         relatorio += "=" * 80 + "\n"
-        relatorio += f"Gerado em: {agora_brasilia().strftime('%d/%m/%Y às %H:%M:%S')}\n"
+        relatorio += f"Gerado em: {agora_gmt4().strftime('%d/%m/%Y às %H:%M:%S')}\n"
         relatorio += "=" * 80 + "\n\n"
         
         # Gerar relatório para cada dia e período
@@ -253,7 +253,7 @@ def salvar_relatorio():
         logger.error(f"Erro ao salvar relatório: {e}")
 
 def agendar_tarefas():
-    """Agenda as tarefas de geração de relatórios (GMT-4 / Brasília)"""
+    """Agenda as tarefas de geração de relatórios (GMT-4 / Campo Grande/MS)"""
     # Segunda-feira às 13h45
     schedule.every().monday.at("13:45").do(salvar_relatorio)
     
@@ -274,7 +274,7 @@ def agendar_tarefas():
             import time
             time.sleep(60)
     
-    logger.info("Tarefas agendadas com sucesso (fuso horário: GMT-4 / Brasília)")
+    logger.info("Tarefas agendadas com sucesso (fuso horário: GMT-4 / Campo Grande/MS)")
     
     thread = threading.Thread(target=executar_agendador, daemon=True)
     thread.start()
