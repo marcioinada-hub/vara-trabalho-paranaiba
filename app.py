@@ -25,7 +25,10 @@ def agora_gmt4():
     return datetime.now(TZ_CAMPO_GRANDE)
 
 # Configuração do banco de dados
-DB_PATH = '/home/ubuntu/vara-trabalho-paranaiba/inscricoes.db'
+# Usar caminho relativo para funcionar em qualquer ambiente (local e Render)
+import os
+DB_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(DB_DIR, 'inscricoes.db')
 
 # Senha do administrador (hash SHA256)
 ADMIN_PASSWORD_HASH = hashlib.sha256('admin123'.encode()).hexdigest()
