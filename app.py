@@ -95,7 +95,7 @@ def init_db():
 
 def get_next_weekdays(num_days=3):
     """Retorna os próximos dias úteis"""
-    today = datetime.now()
+    today = agora_gmt4()
     weekdays = []
     current = today
     
