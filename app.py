@@ -167,14 +167,14 @@ def buscar_pauta():
     # Buscar dados dinâmicos do TRT-24
     dados = buscar_dados_trt24()
     
-    # Filtrar: excluir horários que terminam em 1 (ex: 13:31, 14:01, 15:11, 16:01)
+    # Filtrar: excluir horu00e1rios que terminam em 1 (ex: 13:31, 14:01, 15:11, 16:01)
     dados_filtrados = []
     for a in dados:
-        minuto = int(a['horario'].split(':')[1])
-        # Excluir se o minuto termina em 1 (11, 21, 31, 41, 51)
-        if minuto not in [11, 21, 31, 41, 51]:
-            dados_filtrados.append(a)
-    
+        horario = a['horario']
+        minuto = int(horario.split(':')[1])
+        # Excluir se o minuto termina em 1 (01, 11, 21, 31, 41, 51)
+        if minuto not in [1, 11, 21, 31, 41, 51]:
+            dados_filtrados.append(a) 
     weekdays = get_next_weekdays(10)  # Buscar até 10 dias para encontrar 3 com audiências
     
     pautas_encontradas = []
