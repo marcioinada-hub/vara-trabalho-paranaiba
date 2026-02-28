@@ -171,7 +171,8 @@ def buscar_pauta():
     dados_filtrados = []
     for a in dados:
         minuto = int(a['horario'].split(':')[1])
-        if minuto % 10 != 1:  # Excluir se o minuto termina em 1
+        # Excluir se o minuto termina em 1 (11, 21, 31, 41, 51)
+        if minuto not in [11, 21, 31, 41, 51]:
             dados_filtrados.append(a)
     
     weekdays = get_next_weekdays(10)  # Buscar até 10 dias para encontrar 3 com audiências
