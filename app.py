@@ -163,9 +163,16 @@ def get_next_weekdays(num_days=3):
     return weekdays
 
 def buscar_pauta():
-    """Retorna a pauta dos próximos 3 dias com audiências"""
+    """Retorna a pauta dos próximos 3 dias com audiências, excluindo horários terminados em 1"""
     # Buscar dados dinâmicos do TRT-24
     dados = buscar_dados_trt24()
+    
+    # Filtrar: excluir horários que terminam em 1 (ex: 13:31, 14:01, 15:11, 16:01)
+    dados_filtrados = []
+    for a in dados:
+        minuto = int(a['horario'].split(':')[1])
+        if minuto % 10 != 1:  # Excluir se o minuto termina em 1
+            dados_filtrados.append(a)
     
     weekdays = get_next_weekdays(10)  # Buscar até 10 dias para encontrar 3 com audiências
     
@@ -176,7 +183,7 @@ def buscar_pauta():
         if dias_com_audiencias >= 3:
             break
         
-        audiencias_do_dia = [a for a in dados if a['data'] == day]
+        audiencias_do_dia = [a for a in dados_filtrados if a['data'] == day]
         
         if audiencias_do_dia:
             pautas_encontradas.extend(audiencias_do_dia)
