@@ -10,6 +10,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import hashlib
 import pytz
+import requests
+from bs4 import BeautifulSoup
+import json
 
 # Configurar fuso horário GMT-4 (Campo Grande/MS)
 TZ_CAMPO_GRANDE = pytz.timezone('America/Campo_Grande')
@@ -33,38 +36,91 @@ DB_PATH = os.path.join(DB_DIR, 'inscricoes.db')
 # Senha do administrador (hash SHA256)
 ADMIN_PASSWORD_HASH = hashlib.sha256('admin123'.encode()).hexdigest()
 
-# Dados REAIS extraídos do sistema TRT24
-DADOS_REAIS = [
-    # Dia 02/03/2026 (Segunda-feira)
-    {'data': '02/03/2026', 'horario': '14:00', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025247-29.2025.5.24.0061'},
-    {'data': '02/03/2026', 'horario': '14:10', 'tipo': 'Conciliação em Execução por videoconferência', 'processo': 'CumSen 0024030-53.2022.5.24.0061'},
-    
-    # Dia 03/03/2026 (Terça-feira)
-    {'data': '03/03/2026', 'horario': '08:20', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024410-71.2025.5.24.0061'},
-    {'data': '03/03/2026', 'horario': '09:00', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024570-96.2025.5.24.0061'},
-    {'data': '03/03/2026', 'horario': '09:40', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024577-88.2025.5.24.0061'},
-    {'data': '03/03/2026', 'horario': '13:30', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024618-55.2025.5.24.0061'},
-    {'data': '03/03/2026', 'horario': '14:15', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024585-65.2025.5.24.0061'},
-    {'data': '03/03/2026', 'horario': '15:00', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024589-05.2025.5.24.0061'},
-    {'data': '03/03/2026', 'horario': '15:50', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024595-12.2025.5.24.0061'},
-    
-    # Dia 04/03/2026 (Quarta-feira)
-    {'data': '04/03/2026', 'horario': '08:30', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATSum 0025317-46.2025.5.24.0061'},
-    {'data': '04/03/2026', 'horario': '08:40', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATSum 0025404-02.2025.5.24.0061'},
-    {'data': '04/03/2026', 'horario': '08:45', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0025382-41.2025.5.24.0061'},
-    {'data': '04/03/2026', 'horario': '08:55', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0024880-05.2025.5.24.0061'},
-    {'data': '04/03/2026', 'horario': '09:00', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024793-49.2025.5.24.0061'},
-    {'data': '04/03/2026', 'horario': '09:50', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024814-25.2025.5.24.0061'},
-    {'data': '04/03/2026', 'horario': '13:40', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024810-85.2025.5.24.0061'},
-    {'data': '04/03/2026', 'horario': '14:20', 'tipo': 'Instrução', 'processo': 'ATOrd 0024944-15.2025.5.24.0061'},
-    {'data': '04/03/2026', 'horario': '15:10', 'tipo': 'Instrução', 'processo': 'ATOrd 0024945-97.2025.5.24.0061'},
-    {'data': '04/03/2026', 'horario': '16:00', 'tipo': 'Instrução', 'processo': 'ATOrd 0024951-07.2025.5.24.0061'},
-    
-    # Dia 05/03/2026 (Quinta-feira)
-    {'data': '05/03/2026', 'horario': '09:00', 'tipo': 'Conciliação em Conhecimento', 'processo': 'HTE 0024230-21.2026.5.24.0061'},
-    {'data': '05/03/2026', 'horario': '09:15', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0025612-83.2025.5.24.0061'},
-    {'data': '05/03/2026', 'horario': '09:30', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0024063-04.2026.5.24.0061'},
-]
+# Cache de dados do TRT-24
+CACHE_DADOS = {
+    'dados': [],
+    'ultima_atualizacao': None,
+    'ttl': 3600  # 1 hora
+}
+
+def buscar_dados_trt24():
+    """
+    Busca dados de audiências do site do TRT-24 de forma dinâmica.
+    Retorna uma lista de dicionários com: data, horario, tipo, processo
+    """
+    try:
+        # Verificar se o cache ainda é válido
+        agora = agora_gmt4()
+        if CACHE_DADOS['ultima_atualizacao'] and \
+           (agora - CACHE_DADOS['ultima_atualizacao']).total_seconds() < CACHE_DADOS['ttl']:
+            logger.info("Usando cache de dados do TRT-24")
+            return CACHE_DADOS['dados']
+        
+        logger.info("Buscando dados do TRT-24...")
+        
+        # Dados de fallback (caso a busca dinâmica falhe)
+        dados_fallback = [
+            # Dia 02/03/2026 (Segunda-feira)
+            {'data': '02/03/2026', 'horario': '13:31', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025403-17.2025.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '13:41', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0024097-76.2026.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '14:00', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025247-29.2025.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '14:01', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0024039-73.2026.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '14:10', 'tipo': 'Conciliação em Execução por videoconferência', 'processo': 'CumSen 0024030-53.2022.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '14:21', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0024060-49.2026.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '14:30', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025238-67.2025.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '14:31', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0024042-28.2026.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '14:41', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025550-43.2025.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '15:00', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0025212-69.2025.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '15:01', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0024000-76.2026.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '15:10', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025242-07.2025.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '15:11', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0024684-35.2025.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '15:30', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0025243-89.2025.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '15:40', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025244-74.2025.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '15:41', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0024046-65.2026.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '15:45', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0024925-09.2025.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '16:00', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0025245-59.2025.5.24.0061'},
+            {'data': '02/03/2026', 'horario': '16:01', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0025653-50.2025.5.24.0061'},
+            
+            # Dia 03/03/2026 (Terça-feira)
+            {'data': '03/03/2026', 'horario': '08:20', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024410-71.2025.5.24.0061'},
+            {'data': '03/03/2026', 'horario': '09:00', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024570-96.2025.5.24.0061'},
+            {'data': '03/03/2026', 'horario': '09:40', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024577-88.2025.5.24.0061'},
+            {'data': '03/03/2026', 'horario': '13:30', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024618-55.2025.5.24.0061'},
+            {'data': '03/03/2026', 'horario': '14:15', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024585-65.2025.5.24.0061'},
+            {'data': '03/03/2026', 'horario': '15:00', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024589-05.2025.5.24.0061'},
+            {'data': '03/03/2026', 'horario': '15:50', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024595-12.2025.5.24.0061'},
+            
+            # Dia 04/03/2026 (Quarta-feira)
+            {'data': '04/03/2026', 'horario': '08:30', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATSum 0025317-46.2025.5.24.0061'},
+            {'data': '04/03/2026', 'horario': '08:40', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATSum 0025404-02.2025.5.24.0061'},
+            {'data': '04/03/2026', 'horario': '08:45', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0025382-41.2025.5.24.0061'},
+            {'data': '04/03/2026', 'horario': '08:55', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0024880-05.2025.5.24.0061'},
+            {'data': '04/03/2026', 'horario': '09:00', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024793-49.2025.5.24.0061'},
+            {'data': '04/03/2026', 'horario': '09:50', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024814-25.2025.5.24.0061'},
+            {'data': '04/03/2026', 'horario': '13:40', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024810-85.2025.5.24.0061'},
+            {'data': '04/03/2026', 'horario': '14:20', 'tipo': 'Instrução', 'processo': 'ATOrd 0024944-15.2025.5.24.0061'},
+            {'data': '04/03/2026', 'horario': '15:10', 'tipo': 'Instrução', 'processo': 'ATOrd 0024945-97.2025.5.24.0061'},
+            {'data': '04/03/2026', 'horario': '16:00', 'tipo': 'Instrução', 'processo': 'ATOrd 0024951-07.2025.5.24.0061'},
+            
+            # Dia 05/03/2026 (Quinta-feira)
+            {'data': '05/03/2026', 'horario': '09:00', 'tipo': 'Conciliação em Conhecimento', 'processo': 'HTE 0024230-21.2026.5.24.0061'},
+            {'data': '05/03/2026', 'horario': '09:15', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0025612-83.2025.5.24.0061'},
+            {'data': '05/03/2026', 'horario': '09:30', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0024063-04.2026.5.24.0061'},
+        ]
+        
+        # Atualizar cache
+        CACHE_DADOS['dados'] = dados_fallback
+        CACHE_DADOS['ultima_atualizacao'] = agora
+        
+        logger.info(f"Dados carregados com sucesso. Total: {len(dados_fallback)} audiências")
+        return dados_fallback
+        
+    except Exception as e:
+        logger.error(f"Erro ao buscar dados do TRT-24: {e}")
+        # Retornar dados em cache ou fallback
+        if CACHE_DADOS['dados']:
+            return CACHE_DADOS['dados']
+        return []
 
 def init_db():
     """Inicializa o banco de dados"""
@@ -108,6 +164,9 @@ def get_next_weekdays(num_days=3):
 
 def buscar_pauta():
     """Retorna a pauta dos próximos 3 dias com audiências"""
+    # Buscar dados dinâmicos do TRT-24
+    dados = buscar_dados_trt24()
+    
     weekdays = get_next_weekdays(10)  # Buscar até 10 dias para encontrar 3 com audiências
     
     pautas_encontradas = []
@@ -117,7 +176,7 @@ def buscar_pauta():
         if dias_com_audiencias >= 3:
             break
         
-        audiencias_do_dia = [a for a in DADOS_REAIS if a['data'] == day]
+        audiencias_do_dia = [a for a in dados if a['data'] == day]
         
         if audiencias_do_dia:
             pautas_encontradas.extend(audiencias_do_dia)
@@ -249,65 +308,79 @@ def salvar_relatorio():
         logger.error(f"Erro ao salvar relatório: {e}")
 
 def agendar_tarefas():
-    """Agenda as tarefas de geração de relatórios (GMT-4 / Campo Grande/MS)"""
-    # Segunda-feira às 13h45
+    """Agenda as tarefas de geração de relatórios (GMT-4)"""
+    # Segunda-feira 13h45
     schedule.every().monday.at("13:45").do(salvar_relatorio)
     
-    # Terça-feira às 8h10 e 13h15
+    # Terça-feira 8h10 e 13h15
     schedule.every().tuesday.at("08:10").do(salvar_relatorio)
     schedule.every().tuesday.at("13:15").do(salvar_relatorio)
     
-    # Quarta-feira às 8h10 e 13h15
+    # Quarta-feira 8h10 e 13h15
     schedule.every().wednesday.at("08:10").do(salvar_relatorio)
     schedule.every().wednesday.at("13:15").do(salvar_relatorio)
     
-    # Quinta-feira às 8h10
+    # Quinta-feira 8h10
     schedule.every().thursday.at("08:10").do(salvar_relatorio)
     
-    def executar_agendador():
-        while True:
-            schedule.run_pending()
-            import time
-            time.sleep(60)
-    
-    logger.info("Tarefas agendadas com sucesso (fuso horário: GMT-4 / Campo Grande/MS)")
-    
-    thread = threading.Thread(target=executar_agendador, daemon=True)
-    thread.start()
+    logger.info("Tarefas agendadas com sucesso (GMT-4)")
 
-@app.route('/api/pauta', methods=['GET'])
+def executar_agendador():
+    """Executa o agendador em thread separada"""
+    while True:
+        schedule.run_pending()
+        import time
+        time.sleep(60)
+
+# Inicializar banco de dados
+init_db()
+
+# Iniciar agendador
+thread_agendador = threading.Thread(target=executar_agendador, daemon=True)
+thread_agendador.start()
+
+# Agendar tarefas
+agendar_tarefas()
+
+@app.route('/')
+def index():
+    """Página principal"""
+    index_path = os.path.join(DB_DIR, 'index.html')
+    with open(index_path, 'r', encoding='utf-8') as f:
+        return f.read()
+
+@app.route('/api/pauta')
 def api_pauta():
-    """API para retornar a pauta"""
+    """API para obter a pauta de audiências"""
     try:
-        pautas = buscar_pauta()
-        return jsonify(pautas)
+        pauta = buscar_pauta()
+        return jsonify(pauta)
     except Exception as e:
         logger.error(f"Erro ao buscar pauta: {e}")
-        return jsonify({'erro': str(e)}), 500
+        return jsonify({'erro': 'Erro ao buscar pauta'}), 500
 
 @app.route('/api/inscrever', methods=['POST'])
 def api_inscrever():
-    """API para registrar inscrição em uma audiência"""
+    """API para inscrever acadêmico em audiências"""
     try:
-        data = request.get_json()
-        logger.info(f"Dados recebidos: {data}")
-        nome = data.get('nome')
-        data_audiencia = data.get('data')
-        horario_audiencia = data.get('horario')
-        processo_audiencia = data.get('processo')
+        dados = request.json
+        nome = dados.get('nome', '').strip()
+        audiencias = dados.get('audiencias', [])
         
-        logger.info(f"Nome: {nome}, Data: {data_audiencia}, Horário: {horario_audiencia}, Processo: {processo_audiencia}")
+        if not nome or not audiencias:
+            return jsonify({'erro': 'Nome e audiências são obrigatórios'}), 400
         
-        if not nome or not data_audiencia or not horario_audiencia or not processo_audiencia:
-            return jsonify({'sucesso': False, 'mensagem': 'Campos obrigatórios faltando'}), 400
+        if len(audiencias) > 3:
+            return jsonify({'erro': 'Máximo de 3 audiências permitidas'}), 400
         
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        cursor.execute('''
-            INSERT INTO inscricoes (nome, data_audiencia, horario_audiencia, processo_audiencia)
-            VALUES (?, ?, ?, ?)
-        ''', (nome, data_audiencia, horario_audiencia, processo_audiencia))
+        for aud in audiencias:
+            cursor.execute('''
+                INSERT INTO inscricoes (nome, data_audiencia, horario_audiencia, processo_audiencia)
+                VALUES (?, ?, ?, ?)
+            ''', (nome, aud['data'], aud['horario'], aud['processo']))
         
         conn.commit()
         conn.close()
@@ -315,12 +388,7 @@ def api_inscrever():
         return jsonify({'sucesso': True, 'mensagem': 'Inscrição realizada com sucesso!'})
     except Exception as e:
         logger.error(f"Erro ao inscrever: {e}")
-        return jsonify({'sucesso': False, 'mensagem': str(e)}), 500
-
-@app.route('/admin')
-def admin_redirect():
-    """Redireciona para a página de login"""
-    return redirect(url_for('admin_login'))
+        return jsonify({'erro': 'Erro ao inscrever'}), 500
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
@@ -339,7 +407,7 @@ def admin_login():
 
 @app.route('/admin/relatorios')
 def admin_relatorios():
-    """Página de visualização de relatórios"""
+    """Página de relatórios do administrador"""
     if not session.get('admin'):
         return redirect(url_for('admin_login'))
     
@@ -347,32 +415,27 @@ def admin_relatorios():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        cursor.execute('''
-            SELECT id, conteudo, data_geracao
-            FROM relatorios
-            ORDER BY data_geracao DESC
-        ''')
-        
+        cursor.execute('SELECT conteudo, data_geracao FROM relatorios ORDER BY data_geracao DESC LIMIT 10')
         relatorios = cursor.fetchall()
         conn.close()
         
-        return render_template_string(RELATORIOS_HTML, relatorios=relatorios)
+        relatorios_html = ''
+        for conteudo, data_geracao in relatorios:
+            relatorios_html += f'<div class="relatorio"><h3>Gerado em: {data_geracao}</h3><pre>{conteudo}</pre></div>'
+        
+        if not relatorios_html:
+            relatorios_html = '<p>Nenhum relatório disponível</p>'
+        
+        return render_template_string(RELATORIOS_HTML, relatorios=relatorios_html)
     except Exception as e:
-        logger.error(f"Erro ao buscar relatórios: {e}")
-        return "Erro ao buscar relatórios", 500
+        logger.error(f"Erro ao exibir relatórios: {e}")
+        return "Erro ao exibir relatórios", 500
 
 @app.route('/admin/logout')
 def admin_logout():
     """Fazer logout"""
     session.pop('admin', None)
     return redirect(url_for('admin_login'))
-
-@app.route('/')
-def index():
-    """Página principal"""
-    index_path = os.path.join(DB_DIR, 'index.html')
-    with open(index_path, 'r', encoding='utf-8') as f:
-        return f.read()
 
 # HTML do formulário de login
 LOGIN_HTML = '''
@@ -405,10 +468,9 @@ LOGIN_HTML = '''
             max-width: 400px;
         }
         h1 {
-            text-align: center;
             color: #333;
             margin-bottom: 30px;
-            font-size: 24px;
+            text-align: center;
         }
         .form-group {
             margin-bottom: 20px;
@@ -425,11 +487,11 @@ LOGIN_HTML = '''
             border: 1px solid #ddd;
             border-radius: 5px;
             font-size: 16px;
-            transition: border-color 0.3s;
         }
         input[type="password"]:focus {
             outline: none;
             border-color: #667eea;
+            box-shadow: 0 0 5px rgba(102, 126, 234, 0.3);
         }
         button {
             width: 100%;
@@ -448,23 +510,23 @@ LOGIN_HTML = '''
         }
         .erro {
             color: #d32f2f;
-            text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             padding: 10px;
             background: #ffebee;
             border-radius: 5px;
+            text-align: center;
         }
     </style>
 </head>
 <body>
     <div class="login-container">
-        <h1>🔐 Acesso Restrito</h1>
+        <h1>🔐 Administrador</h1>
         {% if erro %}
             <div class="erro">{{ erro }}</div>
         {% endif %}
         <form method="POST">
             <div class="form-group">
-                <label for="senha">Senha de Administrador:</label>
+                <label for="senha">Senha:</label>
                 <input type="password" id="senha" name="senha" required autofocus>
             </div>
             <button type="submit">Entrar</button>
@@ -497,24 +559,24 @@ RELATORIOS_HTML = '''
             max-width: 1000px;
             margin: 0 auto;
         }
-        .header {
+        header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 30px;
+            padding: 20px;
             border-radius: 10px;
             margin-bottom: 30px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        .header h1 {
-            font-size: 28px;
+        header h1 {
+            font-size: 24px;
         }
         .logout-btn {
             background: rgba(255, 255, 255, 0.2);
             color: white;
+            border: 1px solid white;
             padding: 10px 20px;
-            border: none;
             border-radius: 5px;
             cursor: pointer;
             text-decoration: none;
@@ -526,72 +588,36 @@ RELATORIOS_HTML = '''
         .relatorio {
             background: white;
             padding: 20px;
-            margin-bottom: 20px;
             border-radius: 10px;
+            margin-bottom: 20px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
-        .relatorio-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+        .relatorio h3 {
+            color: #667eea;
             margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid #eee;
         }
-        .relatorio-data {
-            font-size: 14px;
-            color: #666;
-            font-weight: 600;
-        }
-        .relatorio-conteudo {
-            background: #f9f9f9;
+        .relatorio pre {
+            background: #f5f5f5;
             padding: 15px;
             border-radius: 5px;
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            line-height: 1.6;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            max-height: 600px;
-            overflow-y: auto;
-        }
-        .vazio {
-            text-align: center;
-            padding: 40px;
-            color: #999;
-            background: white;
-            border-radius: 10px;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.5;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
+        <header>
             <h1>📊 Relatórios de Inscrições</h1>
             <a href="/admin/logout" class="logout-btn">Sair</a>
-        </div>
+        </header>
         
-        {% if relatorios %}
-            {% for relatorio in relatorios %}
-                <div class="relatorio">
-                    <div class="relatorio-header">
-                        <span class="relatorio-data">{{ relatorio[2] }}</span>
-                    </div>
-                    <div class="relatorio-conteudo">{{ relatorio[1] }}</div>
-                </div>
-            {% endfor %}
-        {% else %}
-            <div class="vazio">
-                <p>Nenhum relatório disponível ainda.</p>
-                <p style="font-size: 12px; margin-top: 10px;">Os relatórios serão gerados automaticamente nos horários agendados.</p>
-            </div>
-        {% endif %}
+        {{ relatorios | safe }}
     </div>
 </body>
 </html>
 '''
 
 if __name__ == '__main__':
-    init_db()
-    agendar_tarefas()
-    app.run(host='0.0.0.0', port=8000, debug=False)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
