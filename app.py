@@ -119,15 +119,8 @@ def buscar_pauta():
         
         audiencias_do_dia = [a for a in DADOS_REAIS if a['data'] == day]
         
-        # Filtrar audiências com horários terminados em 1
-        audiencias_filtradas = []
-        for aud in audiencias_do_dia:
-            hora = int(aud['horario'].split(':')[1])
-            if hora % 10 != 1:  # Excluir horários terminados em 1
-                audiencias_filtradas.append(aud)
-        
-        if audiencias_filtradas:
-            pautas_encontradas.extend(audiencias_filtradas)
+        if audiencias_do_dia:
+            pautas_encontradas.extend(audiencias_do_dia)
             dias_com_audiencias += 1
     
     return pautas_encontradas
