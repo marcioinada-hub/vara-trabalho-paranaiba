@@ -372,11 +372,29 @@ def api_inscrever():
     """API para inscrever acadêmico em audiências"""
     try:
         dados = request.json
+        if not dados:
+            return jsonify({'erro': 'Dados inválidos'}), 400
+        
         nome = dados.get('nome', '').strip()
+        
+        if not nome:
+            return jsonify({'erro': 'Nome é obrigatório'}), 400
+        
+        # Suporta dois formatos:
+        # 1. { nome, audiencias: [{data, horario, processo}] }
+        # 2. { nome, data, horario, processo } (enviado individualmente por audiência)
         audiencias = dados.get('audiencias', [])
         
-        if not nome or not audiencias:
-            return jsonify({'erro': 'Nome e audiências são obrigatórios'}), 400
+        if not audiencias:
+            # Formato individual: dados diretos
+            data = dados.get('data', '').strip()
+            horario = dados.get('horario', '').strip()
+            processo = dados.get('processo', '').strip()
+            
+            if not data or not horario or not processo:
+                return jsonify({'erro': 'Dados da audiência incompletos'}), 400
+            
+            audiencias = [{'data': data, 'horario': horario, 'processo': processo}]
         
         if len(audiencias) > 3:
             return jsonify({'erro': 'Máximo de 3 audiências permitidas'}), 400
