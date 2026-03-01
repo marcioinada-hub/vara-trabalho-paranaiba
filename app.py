@@ -172,9 +172,14 @@ def buscar_pauta():
     for a in dados:
         horario = a['horario']
         minuto = int(horario.split(':')[1])
+        tipo = a.get('tipo', '')
         # Excluir se o minuto termina em 1 (01, 11, 21, 31, 41, 51)
-        if minuto not in [1, 11, 21, 31, 41, 51]:
-            dados_filtrados.append(a) 
+        if minuto in [1, 11, 21, 31, 41, 51]:
+            continue
+        # Excluir se o tipo não contém 'videoconferência'
+        if 'videoconfer' not in tipo.lower():
+            continue
+        dados_filtrados.append(a)
     weekdays = get_next_weekdays(10)  # Buscar até 10 dias para encontrar 3 com audiências
     
     pautas_encontradas = []
