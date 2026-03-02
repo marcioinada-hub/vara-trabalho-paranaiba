@@ -455,6 +455,17 @@ def admin_relatorios():
         logger.error(f"Erro ao exibir relatórios: {e}")
         return "Erro ao exibir relatórios", 500
 
+@app.route('/admin/gerar-agora', methods=['POST'])
+def admin_gerar_agora():
+    """Gera e salva o relatório imediatamente (uso administrativo)"""
+    if not session.get('admin'):
+        return jsonify({'erro': 'Não autorizado'}), 401
+    try:
+        salvar_relatorio()
+        return jsonify({'sucesso': True, 'mensagem': 'Relatório gerado com sucesso!'})
+    except Exception as e:
+        return jsonify({'erro': str(e)}), 500
+
 @app.route('/admin/logout')
 def admin_logout():
     """Fazer logout"""
