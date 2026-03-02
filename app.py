@@ -2,8 +2,8 @@ from flask import Flask, jsonify, request, render_template_string, session, redi
 from datetime import datetime, timedelta, timezone
 import sqlite3
 import logging
-import schedule
 import threading
+from apscheduler.schedulers.background import BackgroundScheduler
 import os
 import smtplib
 from email.mime.text import MIMEText
@@ -321,38 +321,31 @@ def salvar_relatorio():
         logger.error(f"Erro ao salvar relatório: {e}")
 
 def agendar_tarefas():
-    """Agenda as tarefas de geração de relatórios (GMT-4)"""
-    # Segunda-feira 13h45
-    schedule.every().monday.at("13:45").do(salvar_relatorio)
+    """Agenda as tarefas de geração de relatórios usando APScheduler com timezone GMT-4"""
+    scheduler = BackgroundScheduler(timezone=TZ_CAMPO_GRANDE)
     
-    # Terça-feira 8h10 e 13h15
-    schedule.every().tuesday.at("08:10").do(salvar_relatorio)
-    schedule.every().tuesday.at("13:15").do(salvar_relatorio)
+    # Segunda-feira 13h45 (GMT-4)
+    scheduler.add_job(salvar_relatorio, 'cron', day_of_week='mon', hour=13, minute=45)
     
-    # Quarta-feira 8h10 e 13h15
-    schedule.every().wednesday.at("08:10").do(salvar_relatorio)
-    schedule.every().wednesday.at("13:15").do(salvar_relatorio)
+    # Terça-feira 8h10 e 13h15 (GMT-4)
+    scheduler.add_job(salvar_relatorio, 'cron', day_of_week='tue', hour=8, minute=10)
+    scheduler.add_job(salvar_relatorio, 'cron', day_of_week='tue', hour=13, minute=15)
     
-    # Quinta-feira 8h10
-    schedule.every().thursday.at("08:10").do(salvar_relatorio)
+    # Quarta-feira 8h10 e 13h15 (GMT-4)
+    scheduler.add_job(salvar_relatorio, 'cron', day_of_week='wed', hour=8, minute=10)
+    scheduler.add_job(salvar_relatorio, 'cron', day_of_week='wed', hour=13, minute=15)
     
-    logger.info("Tarefas agendadas com sucesso (GMT-4)")
-
-def executar_agendador():
-    """Executa o agendador em thread separada"""
-    while True:
-        schedule.run_pending()
-        import time
-        time.sleep(60)
+    # Quinta-feira 8h10 (GMT-4)
+    scheduler.add_job(salvar_relatorio, 'cron', day_of_week='thu', hour=8, minute=10)
+    
+    scheduler.start()
+    logger.info("APScheduler iniciado com timezone GMT-4 (America/Campo_Grande)")
+    return scheduler
 
 # Inicializar banco de dados
 init_db()
 
-# Iniciar agendador
-thread_agendador = threading.Thread(target=executar_agendador, daemon=True)
-thread_agendador.start()
-
-# Agendar tarefas
+# Iniciar agendador com APScheduler
 agendar_tarefas()
 
 @app.route('/')
