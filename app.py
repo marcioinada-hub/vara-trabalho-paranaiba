@@ -28,9 +28,13 @@ def agora_gmt4():
     return datetime.now(TZ_CAMPO_GRANDE)
 
 # Configuração do banco de dados
-# Usar caminho relativo para funcionar em qualquer ambiente (local e Render)
+# Usar disco persistente do Render (/data) se disponível, senão usar caminho relativo
 import os
-DB_DIR = os.path.dirname(os.path.abspath(__file__))
+PERSISTENT_DISK = '/data'
+if os.path.isdir(PERSISTENT_DISK):
+    DB_DIR = PERSISTENT_DISK
+else:
+    DB_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(DB_DIR, 'inscricoes.db')
 
 # Senha do administrador (hash SHA256)
