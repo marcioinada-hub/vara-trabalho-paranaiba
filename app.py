@@ -1,18 +1,16 @@
 from flask import Flask, jsonify, request, render_template_string, session, redirect, url_for
 from datetime import datetime, timedelta, timezone
-import sqlite3
 import logging
 import threading
 from apscheduler.schedulers.background import BackgroundScheduler
 import os
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import hashlib
 import pytz
 import requests
 from bs4 import BeautifulSoup
 import json
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 # Configurar fuso horário GMT-4 (Campo Grande/MS)
 TZ_CAMPO_GRANDE = pytz.timezone('America/Campo_Grande')
@@ -27,15 +25,13 @@ def agora_gmt4():
     """Retorna a data/hora atual no fuso horário GMT-4 (Campo Grande/MS)"""
     return datetime.now(TZ_CAMPO_GRANDE)
 
-# Configuração do banco de dados
-# Usar disco persistente do Render (/data) se disponível, senão usar caminho relativo
-import os
-PERSISTENT_DISK = '/data'
-if os.path.isdir(PERSISTENT_DISK):
-    DB_DIR = PERSISTENT_DISK
-else:
-    DB_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(DB_DIR, 'inscricoes.db')
+# Configuração do banco de dados PostgreSQL (Supabase)
+DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://postgres:VaraParanaiba2026!@db.hzocsqelyrrpsbhorabj.supabase.co:5432/postgres')
+
+def get_db():
+    """Retorna uma conexão com o banco de dados PostgreSQL"""
+    conn = psycopg2.connect(DATABASE_URL)
+    return conn
 
 # Senha do administrador (hash SHA256)
 ADMIN_PASSWORD_HASH = hashlib.sha256('admin123'.encode()).hexdigest()
@@ -127,13 +123,13 @@ def buscar_dados_trt24():
         return []
 
 def init_db():
-    """Inicializa o banco de dados"""
-    conn = sqlite3.connect(DB_PATH)
+    """Inicializa o banco de dados PostgreSQL"""
+    conn = get_db()
     cursor = conn.cursor()
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS inscricoes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             nome TEXT NOT NULL,
             data_audiencia TEXT NOT NULL,
             horario_audiencia TEXT NOT NULL,
@@ -144,7 +140,7 @@ def init_db():
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS relatorios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             conteudo TEXT NOT NULL,
             data_geracao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -152,6 +148,7 @@ def init_db():
     
     conn.commit()
     conn.close()
+    logger.info("Banco de dados PostgreSQL (Supabase) inicializado com sucesso")
 
 def get_next_weekdays(num_days=3):
     """Retorna os próximos dias úteis"""
@@ -209,14 +206,14 @@ def determinar_periodo(horario):
 def gerar_relatorio_por_periodo(data, periodo):
     """Gera relatório para um dia e período específico"""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db()
         cursor = conn.cursor()
         
         # Buscar todas as inscrições para este dia
         cursor.execute('''
             SELECT horario_audiencia, processo_audiencia, nome
             FROM inscricoes
-            WHERE data_audiencia = ?
+            WHERE data_audiencia = %s
             ORDER BY horario_audiencia, nome
         ''', (data,))
         
@@ -260,7 +257,7 @@ def gerar_relatorio_por_periodo(data, periodo):
 def gerar_relatorio():
     """Gera relatório agrupado por dia e período"""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db()
         cursor = conn.cursor()
         
         # Buscar todos os dias com inscrições
@@ -309,12 +306,12 @@ def salvar_relatorio():
             logger.info("Nenhuma inscrição para salvar")
             return
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db()
         cursor = conn.cursor()
         
         cursor.execute('''
             INSERT INTO relatorios (conteudo)
-            VALUES (?)
+            VALUES (%s)
         ''', (relatorio,))
         
         conn.commit()
@@ -355,7 +352,7 @@ agendar_tarefas()
 @app.route('/')
 def index():
     """Página principal"""
-    index_path = os.path.join(DB_DIR, 'index.html')
+    index_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'index.html')
     with open(index_path, 'r', encoding='utf-8') as f:
         return f.read()
 
@@ -401,13 +398,13 @@ def api_inscrever():
         if len(audiencias) > 3:
             return jsonify({'erro': 'Máximo de 3 audiências permitidas'}), 400
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db()
         cursor = conn.cursor()
         
         for aud in audiencias:
             cursor.execute('''
                 INSERT INTO inscricoes (nome, data_audiencia, horario_audiencia, processo_audiencia)
-                VALUES (?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s)
             ''', (nome, aud['data'], aud['horario'], aud['processo']))
         
         conn.commit()
@@ -440,7 +437,7 @@ def admin_relatorios():
         return redirect(url_for('admin_login'))
     
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db()
         cursor = conn.cursor()
         
         cursor.execute('SELECT conteudo, data_geracao FROM relatorios ORDER BY data_geracao DESC LIMIT 10')
