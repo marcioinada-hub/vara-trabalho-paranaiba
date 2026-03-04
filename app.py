@@ -297,10 +297,26 @@ def gerar_relatorio():
         logger.error(f"Erro ao gerar relatório: {e}")
         return ""
 
-def salvar_relatorio():
-    """Salva o relatório no banco de dados"""
+def salvar_relatorio(data=None, periodo=None):
+    """Salva o relatório no banco de dados para um dia e período específico.
+    Se data e periodo forem None, gera relatório completo (uso manual)."""
     try:
-        relatorio = gerar_relatorio()
+        agora = agora_gmt4()
+        
+        if data is None or periodo is None:
+            # Uso manual: gera relatório completo
+            relatorio = gerar_relatorio()
+        else:
+            # Uso agendado: gera apenas para o dia e período especificado
+            rel = gerar_relatorio_por_periodo(data, periodo)
+            if not rel:
+                logger.info(f"Nenhuma inscrição para {data} período {periodo}")
+                return
+            relatorio = "RELATÓRIO DE INSCRIÇÕES - VARA DO TRABALHO DE PARANAÍBA\n"
+            relatorio += "=" * 80 + "\n"
+            relatorio += f"Gerado em: {agora.strftime('%d/%m/%Y às %H:%M:%S')}\n"
+            relatorio += "=" * 80 + "\n\n"
+            relatorio += rel
         
         if not relatorio:
             logger.info("Nenhuma inscrição para salvar")
@@ -317,27 +333,41 @@ def salvar_relatorio():
         conn.commit()
         conn.close()
         
-        logger.info("Relatório salvo com sucesso")
+        logger.info(f"Relatório salvo com sucesso: {data} {periodo}")
     except Exception as e:
         logger.error(f"Erro ao salvar relatório: {e}")
+
+def gerar_relatorio_agendado(periodo):
+    """Função chamada pelo agendador: gera relatório do dia atual e período informado"""
+    data_hoje = agora_gmt4().strftime('%d/%m/%Y')
+    logger.info(f"Gerando relatório agendado: {data_hoje} - {periodo}")
+    salvar_relatorio(data=data_hoje, periodo=periodo)
 
 def agendar_tarefas():
     """Agenda as tarefas de geração de relatórios usando APScheduler com timezone GMT-4"""
     scheduler = BackgroundScheduler(timezone=TZ_CAMPO_GRANDE)
     
-    # Segunda-feira 13h45 (GMT-4)
-    scheduler.add_job(salvar_relatorio, 'cron', day_of_week='mon', hour=13, minute=45)
+    # Segunda-feira 13h45 (GMT-4) → período vespertino da segunda
+    scheduler.add_job(gerar_relatorio_agendado, 'cron', day_of_week='mon', hour=13, minute=45,
+                      kwargs={'periodo': 'VESPERTINO'})
     
-    # Terça-feira 8h10 e 13h15 (GMT-4)
-    scheduler.add_job(salvar_relatorio, 'cron', day_of_week='tue', hour=8, minute=10)
-    scheduler.add_job(salvar_relatorio, 'cron', day_of_week='tue', hour=13, minute=15)
+    # Terça-feira 8h10 (GMT-4) → período matutino da terça
+    scheduler.add_job(gerar_relatorio_agendado, 'cron', day_of_week='tue', hour=8, minute=10,
+                      kwargs={'periodo': 'MATUTINO'})
+    # Terça-feira 13h15 (GMT-4) → período vespertino da terça
+    scheduler.add_job(gerar_relatorio_agendado, 'cron', day_of_week='tue', hour=13, minute=15,
+                      kwargs={'periodo': 'VESPERTINO'})
     
-    # Quarta-feira 8h10 e 13h15 (GMT-4)
-    scheduler.add_job(salvar_relatorio, 'cron', day_of_week='wed', hour=8, minute=10)
-    scheduler.add_job(salvar_relatorio, 'cron', day_of_week='wed', hour=13, minute=15)
+    # Quarta-feira 8h10 (GMT-4) → período matutino da quarta
+    scheduler.add_job(gerar_relatorio_agendado, 'cron', day_of_week='wed', hour=8, minute=10,
+                      kwargs={'periodo': 'MATUTINO'})
+    # Quarta-feira 13h15 (GMT-4) → período vespertino da quarta
+    scheduler.add_job(gerar_relatorio_agendado, 'cron', day_of_week='wed', hour=13, minute=15,
+                      kwargs={'periodo': 'VESPERTINO'})
     
-    # Quinta-feira 8h10 (GMT-4)
-    scheduler.add_job(salvar_relatorio, 'cron', day_of_week='thu', hour=8, minute=10)
+    # Quinta-feira 8h10 (GMT-4) → período matutino da quinta
+    scheduler.add_job(gerar_relatorio_agendado, 'cron', day_of_week='thu', hour=8, minute=10,
+                      kwargs={'periodo': 'MATUTINO'})
     
     scheduler.start()
     logger.info("APScheduler iniciado com timezone GMT-4 (America/Campo_Grande)")
