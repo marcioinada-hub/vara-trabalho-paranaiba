@@ -364,10 +364,13 @@ def agendar_tarefas():
     # Quarta-feira 13h15 (GMT-4) → período vespertino da quarta
     scheduler.add_job(gerar_relatorio_agendado, 'cron', day_of_week='wed', hour=13, minute=15,
                       kwargs={'periodo': 'VESPERTINO'})
-    
-    # Quinta-feira 8h10 (GMT-4) → período matutino da quinta
+     # Quinta-feira 8h10 (GMT-4) → período matutino da quinta
     scheduler.add_job(gerar_relatorio_agendado, 'cron', day_of_week='thu', hour=8, minute=10,
                       kwargs={'periodo': 'MATUTINO'})
+    
+    # Sexta-feira 13h15 (GMT-4) → período vespertino da sexta
+    scheduler.add_job(gerar_relatorio_agendado, 'cron', day_of_week='fri', hour=13, minute=15,
+                      kwargs={'periodo': 'VESPERTINO'})
     
     scheduler.start()
     logger.info("APScheduler iniciado com timezone GMT-4 (America/Campo_Grande)")
