@@ -43,9 +43,67 @@ CACHE_DADOS = {
     'ttl': 3600  # 1 hora
 }
 
+def buscar_audiencias_dia(data_iso):
+    """
+    Busca audiências de um dia específico na API do TRT-24.
+    data_iso: string no formato 'YYYY-MM-DD'
+    Retorna lista de dicionários com: data, horario, tipo, processo
+    """
+    try:
+        url = f"https://pje.trt24.jus.br/pje-consulta-api/api/audiencias"
+        headers = {
+            'X-Grau-Instancia': '1',
+            'Content-type': 'application/json'
+        }
+        params = {
+            'pagina': 1,
+            'tamanhoPagina': 200,
+            'ordenacaoColuna': 'horario',
+            'ordenacaoCrescente': 'true',
+            'idOj': 95,  # ID da Vara do Trabalho de Paranaíba
+            'data': data_iso
+        }
+        resp = requests.get(url, headers=headers, params=params, timeout=15, verify=False)
+        resp.raise_for_status()
+        dados_json = resp.json()
+        
+        if 'resultado' not in dados_json:
+            return []
+        
+        audiencias = []
+        # Converter data_iso para formato dd/mm/yyyy
+        data_fmt = datetime.strptime(data_iso, '%Y-%m-%d').strftime('%d/%m/%Y')
+        
+        for item in dados_json['resultado']:
+            # Extrair horário do campo data (ex: '2026-03-05T08:21:00')
+            dt = item.get('data', '')
+            if 'T' in dt:
+                horario = dt.split('T')[1][:5]  # 'HH:MM'
+            else:
+                horario = ''
+            
+            tipo = item.get('tipo', '')
+            classe = item.get('classeProcesso', '')
+            numero = item.get('numeroProcesso', '')
+            processo = f"{classe} {numero}".strip() if classe else numero
+            
+            audiencias.append({
+                'data': data_fmt,
+                'horario': horario,
+                'tipo': tipo,
+                'processo': processo
+            })
+        
+        return audiencias
+    except Exception as e:
+        logger.error(f"Erro ao buscar audiências do dia {data_iso}: {e}")
+        return []
+
+
 def buscar_dados_trt24():
     """
-    Busca dados de audiências do site do TRT-24 de forma dinâmica.
+    Busca dados de audiências do TRT-24 de forma dinâmica via API REST.
+    Busca os próximos 15 dias úteis para garantir 3 dias com audiências.
     Retorna uma lista de dicionários com: data, horario, tipo, processo
     """
     try:
@@ -56,68 +114,39 @@ def buscar_dados_trt24():
             logger.info("Usando cache de dados do TRT-24")
             return CACHE_DADOS['dados']
         
-        logger.info("Buscando dados do TRT-24...")
+        logger.info("Buscando dados do TRT-24 via API REST...")
         
-        # Dados de fallback (caso a busca dinâmica falhe)
-        dados_fallback = [
-            # Dia 02/03/2026 (Segunda-feira)
-            {'data': '02/03/2026', 'horario': '13:31', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025403-17.2025.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '13:41', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0024097-76.2026.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '14:00', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025247-29.2025.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '14:01', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0024039-73.2026.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '14:10', 'tipo': 'Conciliação em Execução por videoconferência', 'processo': 'CumSen 0024030-53.2022.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '14:21', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0024060-49.2026.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '14:30', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025238-67.2025.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '14:31', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0024042-28.2026.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '14:41', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025550-43.2025.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '15:00', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0025212-69.2025.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '15:01', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0024000-76.2026.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '15:10', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025242-07.2025.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '15:11', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0024684-35.2025.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '15:30', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0025243-89.2025.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '15:40', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0025244-74.2025.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '15:41', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0024046-65.2026.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '15:45', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATOrd 0024925-09.2025.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '16:00', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0025245-59.2025.5.24.0061'},
-            {'data': '02/03/2026', 'horario': '16:01', 'tipo': 'Conciliação em Conhecimento por videoconferência', 'processo': 'ATSum 0025653-50.2025.5.24.0061'},
-            
-            # Dia 03/03/2026 (Terça-feira)
-            {'data': '03/03/2026', 'horario': '08:20', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024410-71.2025.5.24.0061'},
-            {'data': '03/03/2026', 'horario': '09:00', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024570-96.2025.5.24.0061'},
-            {'data': '03/03/2026', 'horario': '09:40', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024577-88.2025.5.24.0061'},
-            {'data': '03/03/2026', 'horario': '13:30', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024618-55.2025.5.24.0061'},
-            {'data': '03/03/2026', 'horario': '14:15', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024585-65.2025.5.24.0061'},
-            {'data': '03/03/2026', 'horario': '15:00', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024589-05.2025.5.24.0061'},
-            {'data': '03/03/2026', 'horario': '15:50', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024595-12.2025.5.24.0061'},
-            
-            # Dia 04/03/2026 (Quarta-feira)
-            {'data': '04/03/2026', 'horario': '08:30', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATSum 0025317-46.2025.5.24.0061'},
-            {'data': '04/03/2026', 'horario': '08:40', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATSum 0025404-02.2025.5.24.0061'},
-            {'data': '04/03/2026', 'horario': '08:45', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0025382-41.2025.5.24.0061'},
-            {'data': '04/03/2026', 'horario': '08:55', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0024880-05.2025.5.24.0061'},
-            {'data': '04/03/2026', 'horario': '09:00', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024793-49.2025.5.24.0061'},
-            {'data': '04/03/2026', 'horario': '09:50', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024814-25.2025.5.24.0061'},
-            {'data': '04/03/2026', 'horario': '13:40', 'tipo': 'Instrução por videoconferência', 'processo': 'ATOrd 0024810-85.2025.5.24.0061'},
-            {'data': '04/03/2026', 'horario': '14:20', 'tipo': 'Instrução', 'processo': 'ATOrd 0024944-15.2025.5.24.0061'},
-            {'data': '04/03/2026', 'horario': '15:10', 'tipo': 'Instrução', 'processo': 'ATOrd 0024945-97.2025.5.24.0061'},
-            {'data': '04/03/2026', 'horario': '16:00', 'tipo': 'Instrução', 'processo': 'ATOrd 0024951-07.2025.5.24.0061'},
-            
-            # Dia 05/03/2026 (Quinta-feira)
-            {'data': '05/03/2026', 'horario': '09:00', 'tipo': 'Conciliação em Conhecimento', 'processo': 'HTE 0024230-21.2026.5.24.0061'},
-            {'data': '05/03/2026', 'horario': '09:15', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0025612-83.2025.5.24.0061'},
-            {'data': '05/03/2026', 'horario': '09:30', 'tipo': 'Conciliação em Conhecimento', 'processo': 'ATOrd 0024063-04.2026.5.24.0061'},
-        ]
+        # Suprimir warnings de SSL
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         
-        # Atualizar cache
-        CACHE_DADOS['dados'] = dados_fallback
-        CACHE_DADOS['ultima_atualizacao'] = agora
+        todos_dados = []
+        current = agora.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        logger.info(f"Dados carregados com sucesso. Total: {len(dados_fallback)} audiências")
-        return dados_fallback
+        # Buscar os próximos 20 dias úteis
+        dias_buscados = 0
+        while dias_buscados < 20:
+            if current.weekday() < 5:  # Segunda a Sexta
+                data_iso = current.strftime('%Y-%m-%d')
+                audiencias = buscar_audiencias_dia(data_iso)
+                todos_dados.extend(audiencias)
+                dias_buscados += 1
+            current += timedelta(days=1)
+        
+        if todos_dados:
+            # Atualizar cache
+            CACHE_DADOS['dados'] = todos_dados
+            CACHE_DADOS['ultima_atualizacao'] = agora
+            logger.info(f"Dados carregados com sucesso via API. Total: {len(todos_dados)} audiências")
+            return todos_dados
+        else:
+            logger.warning("API não retornou dados. Usando cache anterior se disponível.")
+            if CACHE_DADOS['dados']:
+                return CACHE_DADOS['dados']
+            return []
         
     except Exception as e:
         logger.error(f"Erro ao buscar dados do TRT-24: {e}")
-        # Retornar dados em cache ou fallback
         if CACHE_DADOS['dados']:
             return CACHE_DADOS['dados']
         return []
@@ -163,15 +192,13 @@ def get_next_weekdays(num_days=3):
     
     return weekdays
 
-def buscar_pauta():
-    """Retorna a pauta dos próximos 3 dias com audiências, excluindo horários terminados em 1"""
-    # Buscar dados dinâmicos do TRT-24
-    dados = buscar_dados_trt24()
-    
-    # Filtrar: excluir horu00e1rios que terminam em 1 (ex: 13:31, 14:01, 15:11, 16:01)
+def filtrar_audiencias(dados):
+    """Aplica os filtros padrão: remove horários terminados em 1 e não-videoconferência"""
     dados_filtrados = []
     for a in dados:
-        horario = a['horario']
+        horario = a.get('horario', '')
+        if not horario or ':' not in horario:
+            continue
         minuto = int(horario.split(':')[1])
         tipo = a.get('tipo', '')
         # Excluir se o minuto termina em 1 (01, 11, 21, 31, 41, 51)
@@ -181,20 +208,35 @@ def buscar_pauta():
         if 'videoconfer' not in tipo.lower():
             continue
         dados_filtrados.append(a)
-    weekdays = get_next_weekdays(10)  # Buscar até 10 dias para encontrar 3 com audiências
+    return dados_filtrados
+
+
+def buscar_pauta():
+    """Retorna a pauta dos próximos 3 dias úteis com audiências de videoconferência.
+    Avança para o próximo dia útil se não houver audiências em um dia."""
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
     pautas_encontradas = []
     dias_com_audiencias = 0
     
-    for day in weekdays:
-        if dias_com_audiencias >= 3:
-            break
+    agora = agora_gmt4()
+    current = agora.replace(hour=0, minute=0, second=0, microsecond=0)
+    dias_verificados = 0
+    
+    while dias_com_audiencias < 3 and dias_verificados < 30:
+        if current.weekday() < 5:  # Segunda a Sexta
+            data_iso = current.strftime('%Y-%m-%d')
+            audiencias_dia = buscar_audiencias_dia(data_iso)
+            audiencias_filtradas = filtrar_audiencias(audiencias_dia)
+            
+            if audiencias_filtradas:
+                pautas_encontradas.extend(audiencias_filtradas)
+                dias_com_audiencias += 1
+            
+            dias_verificados += 1
         
-        audiencias_do_dia = [a for a in dados_filtrados if a['data'] == day]
-        
-        if audiencias_do_dia:
-            pautas_encontradas.extend(audiencias_do_dia)
-            dias_com_audiencias += 1
+        current += timedelta(days=1)
     
     return pautas_encontradas
 
