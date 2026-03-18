@@ -290,26 +290,9 @@
     </header>
 
     <div class="container">
-        <!-- Pauta de Audiências -->
-        <div class="section">
-            <h2>Pauta de Audiências - Próximos 3 Dias</h2>
-            <p style="margin-bottom: 15px; color: #666;">Selecione até 3 audiências que deseja assistir:</p>
-            
-            <div id="pauta-container">
-                <div class="loading">
-                    <div class="spinner"></div>
-                    <p>Carregando pauta de audiências...</p>
-                </div>
-            </div>
-        </div>
-
         <!-- Inscrição para assistir audiência -->
         <div class="section">
             <h2>Inscrição para assistir audiência</h2>
-            
-            <div class="selection-info" id="selection-info" style="display: none;">
-                Audiências selecionadas: <strong id="selected-count">0</strong> de 3
-            </div>
 
             <div class="form-container">
                 <form id="inscricao-form">
@@ -319,7 +302,37 @@
                         <input type="text" id="name" name="name" placeholder="Digite seu nome completo" required>
                     </div>
 
-                    <button type="submit">Confirmar Inscrição</button>
+                    <!-- Observações importantes -->
+                    <div style="background-color:#fff3cd; border-left:4px solid #ff9800; padding:18px 20px; border-radius:5px; margin-bottom:20px;">
+                        <p style="font-size:1em; font-weight:700; color:#e65100; margin-bottom:8px;">⚠️ Observações Importantes</p>
+                        <p style="font-size:0.95em; color:#333; margin-bottom:8px;">
+                            O cadastro deve ser feito <strong>30 minutos antes</strong> de iniciar a primeira audiência do período (matutino ou vespertino). Após esse prazo, escolha uma audiência do próximo período.
+                        </p>
+                        <p style="font-size:0.95em; color:#333; margin-bottom:8px;">
+                            Se seu nome não estiver cadastrado, não será admitido na audiência.
+                        </p>
+                        <p style="font-size:0.95em; color:#333;">
+                            Para consultar o número do processo, acesse:
+                            <a href="https://www.trt24.jus.br/ca/web/guest/consulta-processual" target="_blank" style="color:#1a3a52; font-weight:600; word-break:break-all;">https://www.trt24.jus.br/ca/web/guest/consulta-processual</a>
+                        </p>
+                    </div>
+
+                    <!-- Pauta de Audiências -->
+                    <h3 style="color:#1a3a52; font-size:1.2em; margin-bottom:10px;">Pauta de Audiências - Próximos 3 Dias</h3>
+                    <p style="margin-bottom:12px; color:#666;">Selecione até 3 audiências que deseja assistir:</p>
+
+                    <div id="pauta-container">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            <p>Carregando pauta de audiências...</p>
+                        </div>
+                    </div>
+
+                    <div class="selection-info" id="selection-info" style="display: none; margin-top:15px;">
+                        Audiências selecionadas: <strong id="selected-count">0</strong> de 3
+                    </div>
+
+                    <button type="submit" style="margin-top:20px;">Confirmar Inscrição</button>
                 </form>
             </div>
         </div>
@@ -339,24 +352,6 @@
             </div>
         </div>
 
-        <!-- Informação Importante -->
-        <div class="section" style="background-color: #fff3cd; border-left: 4px solid #ff9800;">
-            <h2 style="color: #ff6f00;">⚠️ Informação Importante</h2>
-            <p style="font-size: 1.1em; font-weight: 500; color: #333;">
-                É necessário preencher o cadastro <strong>30 minutos antes</strong> de iniciar a primeira audiência do período (matutino ou vespertino). Após esse prazo, escolha uma audiência do próximo período.
-            </p>
-            <p style="margin-top: 15px; font-size: 0.95em; color: #333; font-weight: 500;">
-                Se seu nome não estiver cadastrado, não será admitido na audiência.
-            </p>
-            <p style="margin-top: 15px; font-size: 0.95em; color: #333;">
-                O registro de presença na ata de audiência será automático. Até o dia seguinte estará disponível no processo e pode ser acessada pelo link:
-            </p>
-            <p style="margin-top: 10px;">
-                <a href="https://www.trt24.jus.br/ca/web/guest/consulta-processual" target="_blank" style="color: #1a3a52; text-decoration: none; font-weight: 600; word-break: break-all;">
-                    https://www.trt24.jus.br/ca/web/guest/consulta-processual
-                </a>
-            </p>
-        </div>
     </div>
 
     <footer>
@@ -392,12 +387,56 @@
         }
 
         function exibirPauta(pautas) {
+            // Calcular hora atual em GMT-4 (America/Campo_Grande)
+            const agora = new Date();
+            const agoraGMT4 = new Date(agora.toLocaleString('en-US', { timeZone: 'America/Campo_Grande' }));
+            const horaAtual = agoraGMT4.getHours();
+            const minutoAtual = agoraGMT4.getMinutes();
+            const horaMinutoAtual = horaAtual * 60 + minutoAtual; // em minutos desde meia-noite
+
+            // Limite: 8h15 = 495 min, 13h15 = 795 min
+            const LIMITE_MANHA = 8 * 60 + 15;   // 8h15
+            const LIMITE_TARDE = 13 * 60 + 15;  // 13h15
+
+            // Data de hoje no formato dd/mm/aaaa (GMT-4)
+            const diaAtual = String(agoraGMT4.getDate()).padStart(2, '0');
+            const mesAtual = String(agoraGMT4.getMonth() + 1).padStart(2, '0');
+            const anoAtual = agoraGMT4.getFullYear();
+            const dataHoje = `${diaAtual}/${mesAtual}/${anoAtual}`;
+
+            // Filtrar audiências que já passaram do prazo
+            const pautasFiltradas = pautas.filter(pauta => {
+                if (pauta.data !== dataHoje) return true; // outros dias: sempre mostrar
+
+                // Converter horário da audiência (HH:MM) para minutos
+                const partes = pauta.horario.split(':');
+                const hAud = parseInt(partes[0]);
+                const mAud = parseInt(partes[1]) || 0;
+                const minAud = hAud * 60 + mAud;
+
+                // Período matutino: 8h00 às 12h00 (480 a 720 min)
+                // Período vespertino: 13h30 às 18h00 (810 a 1080 min)
+                const ehManha = minAud >= 480 && minAud < 720;
+                const ehTarde = minAud >= 810 && minAud <= 1080;
+
+                if (ehManha && horaMinutoAtual >= LIMITE_MANHA) return false; // após 8h15, ocultar manhã de hoje
+                if (ehTarde && horaMinutoAtual >= LIMITE_TARDE) return false; // após 13h15, ocultar tarde de hoje
+
+                return true;
+            });
+
+            if (pautasFiltradas.length === 0) {
+                document.getElementById('pauta-container').innerHTML =
+                    '<div class="no-data">Nenhuma audiência disponível no momento. As inscrições para o próximo período estarão disponíveis em breve.</div>';
+                return;
+            }
+
             let html = '<table class="schedule-table"><thead><tr>';
             html += '<th style="width: 50px;"></th>';
             html += '<th>Data</th><th>Horário</th><th>Tipo</th><th>Processo</th>';
             html += '</tr></thead><tbody>';
 
-            pautas.forEach((pauta, index) => {
+            pautasFiltradas.forEach((pauta, index) => {
                 html += '<tr>';
                 html += `<td class="checkbox-cell"><input type="checkbox" class="audiencia-checkbox" data-index="${index}" data-data="${pauta.data}" data-horario="${pauta.horario}" data-processo="${pauta.processo}"></td>`;
                 html += `<td>${pauta.data}</td>`;
