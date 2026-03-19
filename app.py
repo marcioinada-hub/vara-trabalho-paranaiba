@@ -288,7 +288,7 @@ def gerar_relatorio_por_periodo(data, periodo):
             relatorio += f"Processo: {processo}\n"
             nomes_unicos = sorted(set(nomes))  # Remover duplicatas e ordenar
             nomes_lista = ", ".join(nomes_unicos)
-            relatorio += f"Presentes os acadêmicos de direito: {nomes_lista}\n"
+            relatorio += f"Presentes os acadêmicos de direito: {nomes_lista}.\n"
             relatorio += "\n"
         
         return relatorio
