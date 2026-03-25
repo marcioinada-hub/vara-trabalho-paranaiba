@@ -83,6 +83,7 @@ def buscar_audiencias_dia(data_iso):
                 horario = ''
             
             tipo = item.get('tipo', '')
+            status = item.get('status', '')
             classe = item.get('classeProcesso', '')
             numero = item.get('numeroProcesso', '')
             processo = f"{classe} {numero}".strip() if classe else numero
@@ -91,6 +92,7 @@ def buscar_audiencias_dia(data_iso):
                 'data': data_fmt,
                 'horario': horario,
                 'tipo': tipo,
+                'status': status,
                 'processo': processo
             })
         
@@ -193,7 +195,7 @@ def get_next_weekdays(num_days=3):
     return weekdays
 
 def filtrar_audiencias(dados):
-    """Aplica os filtros padrão: remove horários terminados em 1 e não-videoconferência"""
+    """Aplica os filtros padrão: remove horários terminados em 1, não-videoconferência e não-DESIGNADA"""
     dados_filtrados = []
     for a in dados:
         horario = a.get('horario', '')
@@ -201,11 +203,15 @@ def filtrar_audiencias(dados):
             continue
         minuto = int(horario.split(':')[1])
         tipo = a.get('tipo', '')
+        status = a.get('status', '')
         # Excluir se o minuto termina em 1 (01, 11, 21, 31, 41, 51)
         if minuto in [1, 11, 21, 31, 41, 51]:
             continue
         # Excluir se o tipo não contém 'videoconferência'
         if 'videoconfer' not in tipo.lower():
+            continue
+        # Exibir apenas audiências com status DESIGNADA
+        if status.upper() != 'DESIGNADA':
             continue
         dados_filtrados.append(a)
     return dados_filtrados
