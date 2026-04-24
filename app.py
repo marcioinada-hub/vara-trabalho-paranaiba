@@ -217,9 +217,36 @@ def filtrar_audiencias(dados):
     return dados_filtrados
 
 
+def contar_inscricoes_por_audiencia():
+    """Conta quantas inscrições existem para cada audiência (data, horario, processo)"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT data_audiencia, horario_audiencia, processo_audiencia, COUNT(*) as total
+            FROM inscricoes
+            GROUP BY data_audiencia, horario_audiencia, processo_audiencia
+        ''')
+        
+        resultados = cursor.fetchall()
+        conn.close()
+        
+        # Criar dicionário com chave (data, horario, processo)
+        contagem = {}
+        for row in resultados:
+            chave = (row[0], row[1], row[2])
+            contagem[chave] = row[3]
+        
+        return contagem
+    except Exception as e:
+        logger.error(f"Erro ao contar inscrições: {e}")
+        return {}
+
 def buscar_pauta():
     """Retorna a pauta dos próximos 3 dias úteis com audiências de videoconferência.
-    Avança para o próximo dia útil se não houver audiências em um dia."""
+    Avança para o próximo dia útil se não houver audiências em um dia.
+    Filtra audiências que já têm 3 ou mais inscritos."""
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
@@ -230,14 +257,25 @@ def buscar_pauta():
     current = agora.replace(hour=0, minute=0, second=0, microsecond=0)
     dias_verificados = 0
     
+    # Obter contagem de inscrições por audiência
+    contagem_inscricoes = contar_inscricoes_por_audiencia()
+    
     while dias_com_audiencias < 3 and dias_verificados < 30:
         if current.weekday() < 5:  # Segunda a Sexta
             data_iso = current.strftime('%Y-%m-%d')
             audiencias_dia = buscar_audiencias_dia(data_iso)
             audiencias_filtradas = filtrar_audiencias(audiencias_dia)
             
-            if audiencias_filtradas:
-                pautas_encontradas.extend(audiencias_filtradas)
+            # Filtrar audiências que ainda têm vagas (menos de 3 inscritos)
+            audiencias_com_vagas = []
+            for aud in audiencias_filtradas:
+                chave = (aud['data'], aud['horario'], aud['processo'])
+                total_inscritos = contagem_inscricoes.get(chave, 0)
+                if total_inscritos < 3:  # Ainda tem vaga
+                    audiencias_com_vagas.append(aud)
+            
+            if audiencias_com_vagas:
+                pautas_encontradas.extend(audiencias_com_vagas)
                 dias_com_audiencias += 1
             
             dias_verificados += 1
