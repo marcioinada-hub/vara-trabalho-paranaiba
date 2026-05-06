@@ -538,12 +538,17 @@
             Promise.all(promises)
                 .then(responses => Promise.all(responses.map(r => r.json())))
                 .then(results => {
-                    if (results.every(r => r.sucesso)) {
+                    const erros = results.filter(r => r.erro);
+                    if (erros.length > 0) {
+                        // Mostrar mensagem de erro do servidor (ex: limite de inscrições)
+                        alert(erros[0].erro);
+                    } else if (results.every(r => r.sucesso)) {
                         alert('Inscrição realizada com sucesso! Você foi inscrito em ' + selectedAudiences.length + ' audiência(s).');
                         document.getElementById('inscricao-form').reset();
                         selectedAudiences = [];
                         atualizarInfoSelecao();
                         document.querySelectorAll('.audiencia-checkbox').forEach(cb => cb.checked = false);
+                        carregarPauta(); // Recarregar pauta para atualizar vagas
                     } else {
                         alert('Erro ao processar inscrição. Tente novamente.');
                     }
