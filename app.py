@@ -485,6 +485,44 @@ def api_pauta():
         logger.error(f"Erro ao buscar pauta: {e}")
         return jsonify({'erro': 'Erro ao buscar pauta'}), 500
 
+@app.route('/api/verificar-inscricoes', methods=['POST'])
+def api_verificar_inscricoes():
+    """Verifica quantas inscrições uma pessoa já tem por data e período"""
+    try:
+        dados = request.json
+        nome = dados.get('nome', '').strip()
+        if not nome:
+            return jsonify({'erro': 'Nome é obrigatório'}), 400
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Buscar todas as inscrições do nome informado
+        cursor.execute('''
+            SELECT data_audiencia, horario_audiencia
+            FROM inscricoes
+            WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
+        ''', (nome,))
+        
+        inscricoes = cursor.fetchall()
+        conn.close()
+        
+        # Agrupar por data e período
+        contagem = {}  # chave: (data, periodo) -> total
+        for row in inscricoes:
+            data_aud = row[0]
+            horario_aud = row[1]
+            hora = int(horario_aud.split(':')[0]) if horario_aud else 0
+            periodo = 'MATUTINO' if hora < 12 else 'VESPERTINO'
+            chave = f"{data_aud}_{periodo}"
+            contagem[chave] = contagem.get(chave, 0) + 1
+        
+        return jsonify({'contagem': contagem})
+    except Exception as e:
+        logger.error(f"Erro ao verificar inscrições: {e}")
+        return jsonify({'erro': 'Erro ao verificar'}), 500
+
+
 @app.route('/api/inscrever', methods=['POST'])
 def api_inscrever():
     """API para inscrever acadêmico em audiências"""
@@ -520,6 +558,34 @@ def api_inscrever():
         conn = get_db()
         cursor = conn.cursor()
         
+        # Verificar limite por pessoa por período
+        for aud in audiencias:
+            hora = int(aud['horario'].split(':')[0]) if aud.get('horario') else 0
+            periodo = 'MATUTINO' if hora < 12 else 'VESPERTINO'
+            
+            if periodo == 'MATUTINO':
+                cursor.execute('''
+                    SELECT COUNT(*) FROM inscricoes
+                    WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
+                      AND data_audiencia = %s
+                      AND CAST(SPLIT_PART(horario_audiencia, ':', 1) AS INTEGER) < 12
+                ''', (nome, aud['data']))
+            else:
+                cursor.execute('''
+                    SELECT COUNT(*) FROM inscricoes
+                    WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
+                      AND data_audiencia = %s
+                      AND CAST(SPLIT_PART(horario_audiencia, ':', 1) AS INTEGER) >= 12
+                ''', (nome, aud['data']))
+            
+            total = cursor.fetchone()[0]
+            if total >= 3:
+                conn.close()
+                return jsonify({
+                    'erro': f'Você já possui 3 inscrições no período {periodo.lower()} do dia {aud["data"]}. Não é permitido fazer mais inscrições neste período.'
+                }), 400
+        
+        # Inserir inscrições
         for aud in audiencias:
             cursor.execute('''
                 INSERT INTO inscricoes (nome, data_audiencia, horario_audiencia, processo_audiencia)
