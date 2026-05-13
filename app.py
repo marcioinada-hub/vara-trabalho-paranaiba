@@ -582,7 +582,7 @@ def api_inscrever():
             if total >= 3:
                 conn.close()
                 return jsonify({
-                    'erro': f'Você já possui 3 inscrições no período {periodo.lower()} do dia {aud["data"]}. Não é permitido fazer mais inscrições neste período.'
+                    'erro': f'Limite de inscrições por período atingido. Você já possui 3 inscrições no período {periodo.lower()} do dia {aud["data"]}. Não é permitido fazer mais inscrições neste período.'
                 }), 400
         
         # Inserir inscrições
