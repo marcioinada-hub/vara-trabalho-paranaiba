@@ -266,12 +266,12 @@ def buscar_pauta():
             audiencias_dia = buscar_audiencias_dia(data_iso)
             audiencias_filtradas = filtrar_audiencias(audiencias_dia)
             
-            # Filtrar audiências que ainda têm vagas (menos de 3 inscritos)
+            # Filtrar audiências que ainda têm vagas (menos de 6 inscritos)
             audiencias_com_vagas = []
             for aud in audiencias_filtradas:
                 chave = (aud['data'], aud['horario'], aud['processo'])
                 total_inscritos = contagem_inscricoes.get(chave, 0)
-                if total_inscritos < 3:  # Ainda tem vaga
+                if total_inscritos < 6:  # Ainda tem vaga
                     audiencias_com_vagas.append(aud)
             
             if audiencias_com_vagas:
